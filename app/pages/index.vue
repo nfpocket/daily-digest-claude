@@ -13,6 +13,16 @@ const selected = ref<string | null>(null);
 const digestContent = ref<string | null>(null);
 const running = ref(false);
 const loadingDigest = ref(false);
+const phaseText = ref("");
+const streamingContent = ref("");
+
+// Delete state
+const pendingDelete = ref<string | null>(null);
+const deleteModalOpen = ref(false);
+const deleteLoading = ref(false);
+
+watch(pendingDelete, (v) => { deleteModalOpen.value = v !== null })
+watch(deleteModalOpen, (v) => { if (!v) pendingDelete.value = null })
 
 // Auto-select latest digest
 watchEffect(() => {
@@ -23,6 +33,8 @@ watchEffect(() => {
 
 watch(selected, async (filename) => {
   if (!filename) return;
+  // Don't overwrite streaming content mid-run
+  if (running.value) return;
   loadingDigest.value = true;
   try {
     const res = await $fetch<{ content: string }>(`/api/digests/${filename}`);
@@ -36,27 +48,79 @@ const { data: config } = await useFetch("/api/config");
 const schedules = computed(() => config.value?.config?.schedules ?? []);
 const authOk = computed(() => config.value?.authOk ?? false);
 
-async function runNow(entryId: string) {
+function runNow(entryId: string) {
   if (!authOk.value) {
     toast.add({
       title: "Auth not configured",
-      description: "No Claude token found. Add your token to .digest/.env or run the setup wizard.",
+      description: "Claude CLI not found. Make sure the claude command is available in your PATH.",
       color: "error",
     });
     return;
   }
   running.value = true;
-  try {
-    await $fetch("/api/run", { method: "POST", body: { entryId } });
-    toast.add({ title: "Digest generated", color: "success" });
-    await refreshDigests();
-    // Select the new digest
-    if (digests.value?.length) selected.value = digests.value[0]?.filename ?? null;
-  } catch (e: any) {
-    const msg = e?.data?.message ?? e?.message ?? "Unknown error";
-    toast.add({ title: "Digest failed", description: msg, color: "error" });
-  } finally {
+  phaseText.value = "";
+  streamingContent.value = "";
+  digestContent.value = null;
+
+  const es = new EventSource(`/api/run/stream?entryId=${encodeURIComponent(entryId)}`);
+
+  es.onmessage = async (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === "phase") {
+      phaseText.value = ev.message;
+    } else if (ev.type === "token") {
+      streamingContent.value += ev.chunk;
+    } else if (ev.type === "done") {
+      es.close();
+      running.value = false;
+      phaseText.value = "";
+      toast.add({ title: "Digest generated", color: "success" });
+      await refreshDigests();
+      if (digests.value?.length) {
+        selected.value = digests.value[0]?.filename ?? null;
+        // Load the saved file so digestContent matches persisted version
+        const res = await $fetch<{ content: string }>(`/api/digests/${digests.value[0]!.filename}`);
+        digestContent.value = res.content;
+        streamingContent.value = "";
+      }
+    } else if (ev.type === "error") {
+      es.close();
+      running.value = false;
+      phaseText.value = "";
+      streamingContent.value = "";
+      toast.add({ title: "Digest failed", description: ev.message, color: "error" });
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
     running.value = false;
+    phaseText.value = "";
+    streamingContent.value = "";
+    toast.add({ title: "Connection error", description: "Lost connection to the server.", color: "error" });
+  };
+}
+
+async function confirmDelete() {
+  if (!pendingDelete.value) return;
+  deleteLoading.value = true;
+  try {
+    await $fetch(`/api/digests/${pendingDelete.value}`, { method: "DELETE" });
+    const idx = digests.value?.findIndex((d) => d.filename === pendingDelete.value) ?? -1;
+    await refreshDigests();
+    // Auto-select adjacent
+    const remaining = digests.value ?? [];
+    if (remaining.length) {
+      selected.value = remaining[Math.min(idx, remaining.length - 1)]?.filename ?? null;
+    } else {
+      selected.value = null;
+      digestContent.value = null;
+    }
+    pendingDelete.value = null;
+  } catch (e: any) {
+    toast.add({ title: "Delete failed", description: e?.data?.message ?? e?.message, color: "error" });
+  } finally {
+    deleteLoading.value = false;
   }
 }
 
@@ -66,9 +130,14 @@ function renderMarkdown(md: string): string {
     .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold mt-6 mb-2">$1</h2>')
     .replace(/^### (.+)$/gm, '<h3 class="font-medium mt-4 mb-1">$1</h3>')
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary-600 dark:text-primary-400 hover:underline">$1</a>')
     .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
     .replace(/\n/g, "<br>");
 }
+
+const displayContent = computed(() =>
+  running.value ? streamingContent.value : digestContent.value,
+);
 </script>
 
 <template>
@@ -78,10 +147,9 @@ function renderMarkdown(md: string): string {
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold">Daily Digest</h1>
         <div class="flex gap-2 items-center">
-          <!-- Auth warning -->
           <UTooltip
             v-if="!authOk"
-            text="No Claude token configured — click to fix"
+            text="Claude CLI not found — make sure 'claude' is in your PATH"
           >
             <UButton
               to="/setup"
@@ -102,6 +170,7 @@ function renderMarkdown(md: string): string {
               icon="i-heroicons-play"
               variant="outline"
               :loading="running"
+              :disabled="running"
             >
               Run now
             </UButton>
@@ -119,19 +188,32 @@ function renderMarkdown(md: string): string {
         <div class="col-span-3">
           <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">History</h2>
           <div class="space-y-1">
-            <button
+            <div
               v-for="d in digests"
               :key="d.filename"
-              class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
-              :class="
-                selected === d.filename
-                  ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-              "
-              @click="selected = d.filename"
+              class="group flex items-center gap-1"
             >
-              {{ d.date }}
-            </button>
+              <button
+                class="flex-1 text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                :class="
+                  selected === d.filename
+                    ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                "
+                @click="selected = d.filename"
+              >
+                {{ d.date }}
+              </button>
+              <UButton
+                icon="i-heroicons-trash"
+                size="xs"
+                variant="ghost"
+                color="error"
+                class="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                :disabled="running"
+                @click.stop="pendingDelete = d.filename"
+              />
+            </div>
             <p
               v-if="!digests?.length"
               class="text-sm text-gray-400 px-3 py-2"
@@ -144,15 +226,17 @@ function renderMarkdown(md: string): string {
         <!-- Digest content -->
         <div class="col-span-9">
           <UCard>
-            <div
-              v-if="running"
-              class="flex flex-col items-center justify-center py-16 gap-3 text-gray-500"
-            >
-              <UIcon
-                name="i-heroicons-arrow-path"
-                class="animate-spin text-2xl"
+            <!-- Running: show phase + streaming content -->
+            <div v-if="running">
+              <div class="flex items-center gap-2 mb-4 text-gray-500 text-sm">
+                <UIcon name="i-heroicons-arrow-path" class="animate-spin flex-shrink-0" />
+                <span>{{ phaseText || "Starting…" }}</span>
+              </div>
+              <div
+                v-if="streamingContent"
+                class="prose dark:prose-invert max-w-none"
+                v-html="renderMarkdown(streamingContent)"
               />
-              <p class="text-sm">Fetching sources and generating digest…</p>
             </div>
             <div
               v-else-if="loadingDigest"
@@ -164,9 +248,9 @@ function renderMarkdown(md: string): string {
               />
             </div>
             <div
-              v-else-if="digestContent"
+              v-else-if="displayContent"
               class="prose dark:prose-invert max-w-none"
-              v-html="renderMarkdown(digestContent)"
+              v-html="renderMarkdown(displayContent)"
             />
             <div
               v-else
@@ -182,5 +266,24 @@ function renderMarkdown(md: string): string {
         </div>
       </div>
     </UContainer>
+
+    <!-- Delete confirmation modal -->
+    <UModal v-model:open="deleteModalOpen" title="Delete digest">
+      <template #body>
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          Delete this digest permanently? This cannot be undone.
+        </p>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <UButton variant="ghost" :disabled="deleteLoading" @click="deleteModalOpen = false">
+            Cancel
+          </UButton>
+          <UButton color="error" :loading="deleteLoading" @click="confirmDelete">
+            Delete
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

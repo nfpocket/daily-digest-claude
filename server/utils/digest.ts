@@ -6,6 +6,12 @@ import { sendNotifications } from "./notify";
 import { digestsDir, readConfig, type ScheduleEntry } from "./config";
 import { getConnector } from "../connectors/index";
 
+export type DigestEvent =
+  | { type: "phase"; message: string }
+  | { type: "token"; chunk: string }
+  | { type: "done"; filepath: string }
+  | { type: "error"; message: string };
+
 function formatTimestamp(date: Date): string {
   return date.toISOString().slice(0, 16).replace("T", "-").replace(":", "-");
 }
@@ -30,7 +36,8 @@ function buildPrompt(entry: ScheduleEntry, sourceBlocks: string, customPrompt: s
 ## [Source Name]
 [5-10 bullet points summarizing the most important activity. Include author names where relevant.]
 
-Be concise. Focus on signal over noise. Skip pleasantries and filler messages.`;
+Be concise. Focus on signal over noise. Skip pleasantries and filler messages.
+When source items include [(source)](url) links, preserve them in your bullet points. For each bullet include all relevant source links as [(1)](url) [(2)](url) etc.`;
 
   return `${base}
 
@@ -40,7 +47,10 @@ ${sourceBlocks}
 ---`;
 }
 
-export async function runDigest(entryId: string): Promise<string> {
+export async function runDigest(
+  entryId: string,
+  onEvent?: (event: DigestEvent) => void,
+): Promise<string> {
   const config = await readConfig();
   const entry = config.schedules.find((s) => s.id === entryId);
   if (!entry) throw new Error(`Schedule entry not found: ${entryId}`);
@@ -51,7 +61,8 @@ export async function runDigest(entryId: string): Promise<string> {
 
   const since = await getLastDigestTime();
 
-  // Fetch from all sources — collect errors to surface them
+  onEvent?.({ type: "phase", message: "Fetching sources…" });
+
   const sourceBlocks: string[] = [];
   const fetchErrors: string[] = [];
 
@@ -69,7 +80,8 @@ export async function runDigest(entryId: string): Promise<string> {
         const lines = data.items
           .map((item) => {
             const who = item.author ? `**${item.author}**: ` : "";
-            return `- ${who}${item.content}`;
+            const link = item.url ? ` [(source)](${item.url})` : "";
+            return `- ${who}${item.content}${link}`;
           })
           .join("\n");
         sourceBlocks.push(`## ${data.source}\n${lines}`);
@@ -90,8 +102,14 @@ export async function runDigest(entryId: string): Promise<string> {
     console.warn("[digest] Some sources had errors:", fetchErrors);
   }
 
+  onEvent?.({ type: "phase", message: "Generating digest with Claude…" });
+
   const prompt = buildPrompt(entry, sourceBlocks.join("\n\n"), entry.prompt);
-  const digestContent = await runWithCLI(prompt);
+  const digestContent = await runWithCLI(prompt, (chunk) =>
+    onEvent?.({ type: "token", chunk }),
+  );
+
+  onEvent?.({ type: "phase", message: "Saving…" });
 
   const dir = digestsDir();
   if (!existsSync(dir)) await mkdir(dir, { recursive: true });
@@ -99,7 +117,6 @@ export async function runDigest(entryId: string): Promise<string> {
   const filepath = join(dir, filename);
   await writeFile(filepath, digestContent, "utf-8");
 
-  // Notify — don't let notification failure break the digest
   const title = `Daily Digest — ${entry.name}`;
   const firstLines = digestContent.split("\n").slice(0, 5).join("\n");
   sendNotifications(title, firstLines).catch((err) => console.error("[digest] notification error:", err));

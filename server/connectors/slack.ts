@@ -1,6 +1,9 @@
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
+import { writeFile, readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import type { Connector, SourceData } from './registry'
+import { envPath } from '../utils/config'
 
 const SlackConfigSchema = z.object({
   channels: z.array(z.string()).default([]),
@@ -10,10 +13,36 @@ const SlackConfigSchema = z.object({
 
 type SlackConfig = z.infer<typeof SlackConfigSchema>
 
+async function getWorkspaceUrl(client: WebClient): Promise<string | undefined> {
+  if (process.env.SLACK_WORKSPACE_URL) return process.env.SLACK_WORKSPACE_URL
+  try {
+    const result = await client.auth.test()
+    const url = result.url as string | undefined
+    if (!url) return undefined
+    // Persist so subsequent calls skip the API round-trip
+    process.env.SLACK_WORKSPACE_URL = url
+    const path = envPath()
+    if (existsSync(path)) {
+      const raw = await readFile(path, 'utf-8')
+      if (!raw.includes('SLACK_WORKSPACE_URL=')) {
+        await writeFile(path, raw.trimEnd() + `\nSLACK_WORKSPACE_URL=${url}\n`, 'utf-8')
+      }
+    }
+    return url
+  } catch {
+    return undefined
+  }
+}
+
+function buildPermalink(workspaceUrl: string, channelId: string, ts: string): string {
+  return `${workspaceUrl}archives/${channelId}/p${ts.replace('.', '')}`
+}
+
 async function fetchChannelMessages(
   client: WebClient,
   channelId: string,
   since: Date,
+  workspaceUrl?: string,
 ): Promise<{ content: string; author?: string; timestamp: Date; url?: string }[]> {
   const oldest = String(since.getTime() / 1000)
   const result = await client.conversations.history({
@@ -37,18 +66,15 @@ async function fetchChannelMessages(
       }
     }
 
-    items.push({
-      content: msg.text,
-      author,
-      timestamp: ts,
-      url: undefined,
-    })
+    const url =
+      workspaceUrl && msg.ts ? buildPermalink(workspaceUrl, channelId, msg.ts) : undefined
+
+    items.push({ content: msg.text, author, timestamp: ts, url })
   }
   return items
 }
 
 async function resolveChannelId(client: WebClient, nameOrId: string): Promise<string> {
-  // If it looks like an ID already (C...), return as-is
   if (/^[A-Z0-9]{8,}$/.test(nameOrId)) return nameOrId
 
   const name = nameOrId.replace(/^#/, '')
@@ -81,11 +107,13 @@ export const slackConnector: Connector = {
     const client = new WebClient(token)
     const items: SourceData['items'] = []
 
+    const workspaceUrl = await getWorkspaceUrl(client)
+
     // Fetch selected channels
     for (const channel of config.channels) {
       try {
         const channelId = await resolveChannelId(client, channel)
-        const messages = await fetchChannelMessages(client, channelId, since)
+        const messages = await fetchChannelMessages(client, channelId, since, workspaceUrl)
         items.push(...messages.map((m) => ({ ...m, content: `[${channel}] ${m.content}` })))
       } catch (err) {
         console.error(`Slack: failed to fetch ${channel}:`, err)
@@ -98,7 +126,7 @@ export const slackConnector: Connector = {
         const dms = await client.conversations.list({ types: 'im', limit: 20 })
         for (const dm of dms.channels ?? []) {
           if (!dm.id) continue
-          const messages = await fetchChannelMessages(client, dm.id, since)
+          const messages = await fetchChannelMessages(client, dm.id, since, workspaceUrl)
           items.push(...messages.map((m) => ({ ...m, content: `[DM] ${m.content}` })))
         }
       } catch (err) {
@@ -129,7 +157,6 @@ export const slackConnector: Connector = {
       }
     }
 
-    // Sort chronologically
     items.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
     return { source: 'Slack', items }
   },

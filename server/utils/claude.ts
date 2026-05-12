@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process'
 
-export async function runWithCLI(prompt: string): Promise<string> {
+export async function runWithCLI(
+  prompt: string,
+  onChunk?: (chunk: string) => void,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn('claude', ['-p', '--output-format', 'text'], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -9,7 +12,11 @@ export async function runWithCLI(prompt: string): Promise<string> {
     let stdout = ''
     let stderr = ''
 
-    proc.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+    proc.stdout.on('data', (chunk: Buffer) => {
+      const s = chunk.toString()
+      stdout += s
+      onChunk?.(s)
+    })
     proc.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
 
     proc.on('error', (err) => reject(new Error(`Failed to spawn claude CLI: ${err.message}`)))
