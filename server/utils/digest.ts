@@ -61,7 +61,7 @@ export async function runDigest(
     throw new Error(`Schedule entry "${entry.name}" has no sources and no custom prompt.`);
   }
 
-  const since = await getLastDigestTime();
+  const since = await getLastDigestTime(entryId);
 
   const sourceBlocks: string[] = [];
 
@@ -132,19 +132,25 @@ export async function runDigest(
   return filepath;
 }
 
-async function getLastDigestTime(): Promise<Date> {
+async function getLastDigestTime(entryId: string): Promise<Date> {
   const dir = digestsDir();
-  if (!existsSync(dir)) return new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const fallback = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  if (!existsSync(dir)) return fallback;
 
   const files = await readdir(dir);
-  const md = files.filter((f) => f.endsWith(".md")).sort();
-  if (md.length === 0) return new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const md = files.filter((f) => f.endsWith(".md")).sort().reverse();
 
-  const last = md[md.length - 1]!;
-  const parts = last.replace(".md", "").split("-").map(Number);
-  const [year, month, day, hour, min] = parts as [number, number, number, number, number];
-  const d = new Date(year, month - 1, day, hour, min);
-  return isNaN(d.getTime()) ? new Date(Date.now() - 24 * 60 * 60 * 1000) : d;
+  for (const filename of md) {
+    const raw = await readFile(join(dir, filename), "utf-8");
+    const { data } = matter(raw);
+    if (data.scheduleId !== entryId) continue;
+    const parts = filename.replace(".md", "").split("-").map(Number);
+    const [year, month, day, hour, min] = parts as [number, number, number, number, number];
+    const d = new Date(year, month - 1, day, hour, min);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  return fallback;
 }
 
 export type DigestMeta = {

@@ -17,16 +17,3 @@ export interface Connector {
   fetch(config: unknown, since: Date): Promise<SourceData>
 }
 
-const registry = new Map<string, Connector>()
-
-export function registerConnector(connector: Connector): void {
-  registry.set(connector.id, connector)
-}
-
-export function getConnector(id: string): Connector | undefined {
-  return registry.get(id)
-}
-
-export function listConnectors(): Connector[] {
-  return Array.from(registry.values())
-}

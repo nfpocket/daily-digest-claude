@@ -1,9 +1,6 @@
 import { WebClient } from '@slack/web-api'
 import { z } from 'zod'
-import { writeFile, readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
 import type { Connector, SourceData } from './registry'
-import { envPath } from '../utils/config'
 
 const SlackConfigSchema = z.object({
   channels: z.array(z.string()).default([]),
@@ -18,16 +15,7 @@ async function getWorkspaceUrl(client: WebClient): Promise<string | undefined> {
   try {
     const result = await client.auth.test()
     const url = result.url as string | undefined
-    if (!url) return undefined
-    // Persist so subsequent calls skip the API round-trip
-    process.env.SLACK_WORKSPACE_URL = url
-    const path = envPath()
-    if (existsSync(path)) {
-      const raw = await readFile(path, 'utf-8')
-      if (!raw.includes('SLACK_WORKSPACE_URL=')) {
-        await writeFile(path, raw.trimEnd() + `\nSLACK_WORKSPACE_URL=${url}\n`, 'utf-8')
-      }
-    }
+    if (url) process.env.SLACK_WORKSPACE_URL = url
     return url
   } catch {
     return undefined
