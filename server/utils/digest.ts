@@ -8,7 +8,6 @@ import { getConnector } from "../connectors/index";
 
 export type DigestEvent =
   | { type: "phase"; message: string }
-  | { type: "token"; chunk: string }
   | { type: "done"; filepath: string }
   | { type: "error"; message: string };
 
@@ -105,9 +104,7 @@ export async function runDigest(
   onEvent?.({ type: "phase", message: "Generating digest with Claude…" });
 
   const prompt = buildPrompt(entry, sourceBlocks.join("\n\n"), entry.prompt);
-  const digestContent = await runWithCLI(prompt, (chunk) =>
-    onEvent?.({ type: "token", chunk }),
-  );
+  const digestContent = await runWithCLI(prompt);
 
   onEvent?.({ type: "phase", message: "Saving…" });
 

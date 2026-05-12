@@ -13,16 +13,51 @@ const selected = ref<string | null>(null);
 const digestContent = ref<string | null>(null);
 const running = ref(false);
 const loadingDigest = ref(false);
-const phaseText = ref("");
-const streamingContent = ref("");
+
+type StepState = 'pending' | 'active' | 'done'
+interface DigestStep { id: 'fetch' | 'generate' | 'save'; label: string; state: StepState }
+
+const steps = ref<DigestStep[]>([])
+
+function makeSteps(): DigestStep[] {
+  return [
+    { id: 'fetch',    label: 'Fetching sources',              state: 'pending' },
+    { id: 'generate', label: 'Generating digest with Claude', state: 'pending' },
+    { id: 'save',     label: 'Saving',                        state: 'pending' },
+  ]
+}
+
+const PHASE_TO_STEP: Record<string, 'fetch' | 'generate' | 'save'> = {
+  'Fetching sources…':              'fetch',
+  'Generating digest with Claude…': 'generate',
+  'Saving…':                        'save',
+}
+
+function activateStep(phaseMessage: string) {
+  const targetId = PHASE_TO_STEP[phaseMessage]
+  if (!targetId) return
+  steps.value = steps.value.map((s) => {
+    if (s.id === targetId) return { ...s, state: 'active' }
+    if (s.state === 'active') return { ...s, state: 'done' }
+    return s
+  })
+}
+
+function completeAllSteps() {
+  steps.value = steps.value.map((s) => ({ ...s, state: 'done' }))
+}
 
 // Delete state
 const pendingDelete = ref<string | null>(null);
 const deleteModalOpen = ref(false);
 const deleteLoading = ref(false);
 
-watch(pendingDelete, (v) => { deleteModalOpen.value = v !== null })
-watch(deleteModalOpen, (v) => { if (!v) pendingDelete.value = null })
+watch(pendingDelete, (v) => {
+  deleteModalOpen.value = v !== null;
+});
+watch(deleteModalOpen, (v) => {
+  if (!v) pendingDelete.value = null;
+});
 
 // Auto-select latest digest
 watchEffect(() => {
@@ -31,18 +66,22 @@ watchEffect(() => {
   }
 });
 
-watch(selected, async (filename) => {
-  if (!filename) return;
-  // Don't overwrite streaming content mid-run
-  if (running.value) return;
-  loadingDigest.value = true;
-  try {
-    const res = await $fetch<{ content: string }>(`/api/digests/${filename}`);
-    digestContent.value = res.content;
-  } finally {
-    loadingDigest.value = false;
-  }
-});
+watch(
+  selected,
+  async (filename) => {
+    if (!filename) return;
+    // Don't overwrite streaming content mid-run
+    if (running.value) return;
+    loadingDigest.value = true;
+    try {
+      const res = await $fetch<{ content: string }>(`/api/digests/${filename}`);
+      digestContent.value = res.content;
+    } finally {
+      loadingDigest.value = false;
+    }
+  },
+  { immediate: true },
+);
 
 const { data: config } = await useFetch("/api/config");
 const schedules = computed(() => config.value?.config?.schedules ?? []);
@@ -58,45 +97,43 @@ function runNow(entryId: string) {
     return;
   }
   running.value = true;
-  phaseText.value = "";
-  streamingContent.value = "";
+  steps.value = makeSteps();
   digestContent.value = null;
 
   const es = new EventSource(`/api/run/stream?entryId=${encodeURIComponent(entryId)}`);
+  let completed = false;
 
   es.onmessage = async (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === "phase") {
-      phaseText.value = ev.message;
-    } else if (ev.type === "token") {
-      streamingContent.value += ev.chunk;
+      activateStep(ev.message);
     } else if (ev.type === "done") {
+      completed = true;
+      completeAllSteps();
+      await new Promise((r) => setTimeout(r, 600));
       es.close();
       running.value = false;
-      phaseText.value = "";
+      steps.value = [];
       toast.add({ title: "Digest generated", color: "success" });
       await refreshDigests();
       if (digests.value?.length) {
         selected.value = digests.value[0]?.filename ?? null;
-        // Load the saved file so digestContent matches persisted version
         const res = await $fetch<{ content: string }>(`/api/digests/${digests.value[0]!.filename}`);
         digestContent.value = res.content;
-        streamingContent.value = "";
       }
     } else if (ev.type === "error") {
       es.close();
       running.value = false;
-      phaseText.value = "";
-      streamingContent.value = "";
+      steps.value = [];
       toast.add({ title: "Digest failed", description: ev.message, color: "error" });
     }
   };
 
   es.onerror = () => {
+    if (completed) return;
     es.close();
     running.value = false;
-    phaseText.value = "";
-    streamingContent.value = "";
+    steps.value = [];
     toast.add({ title: "Connection error", description: "Lost connection to the server.", color: "error" });
   };
 }
@@ -130,14 +167,14 @@ function renderMarkdown(md: string): string {
     .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold mt-6 mb-2">$1</h2>')
     .replace(/^### (.+)$/gm, '<h3 class="font-medium mt-4 mb-1">$1</h3>')
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary-600 dark:text-primary-400 hover:underline">$1</a>')
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary-600 dark:text-primary-400 hover:underline">$1</a>',
+    )
     .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
     .replace(/\n/g, "<br>");
 }
 
-const displayContent = computed(() =>
-  running.value ? streamingContent.value : digestContent.value,
-);
 </script>
 
 <template>
@@ -226,17 +263,31 @@ const displayContent = computed(() =>
         <!-- Digest content -->
         <div class="col-span-9">
           <UCard>
-            <!-- Running: show phase + streaming content -->
-            <div v-if="running">
-              <div class="flex items-center gap-2 mb-4 text-gray-500 text-sm">
-                <UIcon name="i-heroicons-arrow-path" class="animate-spin flex-shrink-0" />
-                <span>{{ phaseText || "Starting…" }}</span>
-              </div>
+            <!-- Running: show step checklist -->
+            <div v-if="running" class="py-6 space-y-3">
               <div
-                v-if="streamingContent"
-                class="prose dark:prose-invert max-w-none"
-                v-html="renderMarkdown(streamingContent)"
-              />
+                v-for="step in steps"
+                :key="step.id"
+                class="flex items-center gap-3 text-sm"
+                :class="step.state === 'pending' ? 'text-gray-400 dark:text-gray-600' : 'text-gray-700 dark:text-gray-300'"
+              >
+                <UIcon
+                  v-if="step.state === 'active'"
+                  name="i-heroicons-arrow-path"
+                  class="animate-spin flex-shrink-0 text-primary-500"
+                />
+                <UIcon
+                  v-else-if="step.state === 'done'"
+                  name="i-heroicons-check-circle"
+                  class="flex-shrink-0 text-green-500"
+                />
+                <UIcon
+                  v-else
+                  name="i-heroicons-ellipsis-horizontal-circle"
+                  class="flex-shrink-0"
+                />
+                <span>{{ step.label }}</span>
+              </div>
             </div>
             <div
               v-else-if="loadingDigest"
@@ -248,9 +299,9 @@ const displayContent = computed(() =>
               />
             </div>
             <div
-              v-else-if="displayContent"
+              v-else-if="digestContent"
               class="prose dark:prose-invert max-w-none"
-              v-html="renderMarkdown(displayContent)"
+              v-html="renderMarkdown(digestContent)"
             />
             <div
               v-else
@@ -268,18 +319,27 @@ const displayContent = computed(() =>
     </UContainer>
 
     <!-- Delete confirmation modal -->
-    <UModal v-model:open="deleteModalOpen" title="Delete digest">
+    <UModal
+      v-model:open="deleteModalOpen"
+      title="Delete digest"
+    >
       <template #body>
-        <p class="text-sm text-gray-600 dark:text-gray-400">
-          Delete this digest permanently? This cannot be undone.
-        </p>
+        <p class="text-sm text-gray-600 dark:text-gray-400">Delete this digest permanently? This cannot be undone.</p>
       </template>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <UButton variant="ghost" :disabled="deleteLoading" @click="deleteModalOpen = false">
+          <UButton
+            variant="ghost"
+            :disabled="deleteLoading"
+            @click="deleteModalOpen = false"
+          >
             Cancel
           </UButton>
-          <UButton color="error" :loading="deleteLoading" @click="confirmDelete">
+          <UButton
+            color="error"
+            :loading="deleteLoading"
+            @click="confirmDelete"
+          >
             Delete
           </UButton>
         </div>

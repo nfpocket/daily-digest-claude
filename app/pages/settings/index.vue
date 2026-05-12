@@ -80,7 +80,7 @@ function removeSource(index: number) {
 function availableConnectorItems(sourcesInUse: any[]) {
   return connectors.value
     .filter((c: any) => !sourcesInUse.find((s: any) => s.connector === c.id))
-    .map((c: any) => ({ label: c.name, click: () => addSource(c.id) }))
+    .map((c: any) => ({ label: c.name, onSelect: () => addSource(c.id) }))
 }
 
 const runningId = ref<string | null>(null)
@@ -94,7 +94,7 @@ async function runNow(id: string) {
 }
 
 function runNowItems(entries: any[]) {
-  return entries.map((s) => ({ label: `Run: ${s.name}`, click: () => runNow(s.id) }))
+  return entries.map((s) => ({ label: `Run: ${s.name}`, onSelect: () => runNow(s.id) }))
 }
 </script>
 
@@ -148,7 +148,7 @@ function runNowItems(entries: any[]) {
                 </div>
               </div>
               <div class="flex gap-2">
-                <UDropdownMenu :items="[{ label: `Run: ${entry.name}`, click: () => runNow(entry.id) }]">
+                <UDropdownMenu :items="[{ label: `Run: ${entry.name}`, onSelect: () => runNow(entry.id) }]">
                   <UButton
                     size="xs"
                     variant="outline"
