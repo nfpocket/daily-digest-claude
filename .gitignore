@@ -1,0 +1,12 @@
+# Nuxt
+.nuxt/
+.output/
+dist/
+node_modules/
+
+# User state — never commit
+.digest/
+
+# Env
+.env
+*.local
