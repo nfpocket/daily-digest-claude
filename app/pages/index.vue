@@ -8,14 +8,10 @@ if (status.value && !status.value.configured) {
 }
 
 const { data: digests, refresh: refreshDigests } = await useFetch("/api/digests");
-const { data: config } = await useFetch("/api/config");
 
 const selected = ref<string | null>(null);
 const digestContent = ref<string | null>(null);
 const loadingDigest = ref(false);
-
-const schedules = computed(() => config.value?.config?.schedules ?? []);
-const authOk = computed(() => config.value?.authOk ?? false);
 
 const { running, steps, runNow } = useDigestRun({
   onComplete: async () => {
@@ -28,19 +24,12 @@ const { running, steps, runNow } = useDigestRun({
   },
 });
 
-const toast = useToast();
-
-function handleRunNow(entryId: string) {
-  if (!authOk.value) {
-    toast.add({
-      title: "Auth not configured",
-      description: "Claude CLI not found. Make sure the claude command is available in your PATH.",
-      color: "error",
-    });
-    return;
-  }
-  runNow(entryId);
-}
+const runNowRequest = useState<string | null>('runNowRequest');
+watch(runNowRequest, (id) => {
+  if (!id) return;
+  runNow(id);
+  runNowRequest.value = null;
+});
 
 const overlay = useOverlay();
 const deleteModal = overlay.create(ConfirmModal, { destroyOnClose: true });
@@ -91,35 +80,23 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-950">
-    <UContainer class="py-8">
-      <DigestHeader
-        :schedules="schedules"
-        :auth-ok="authOk"
+  <div class="flex h-full">
+    <div class="w-64 flex-shrink-0 overflow-y-auto border-r border-gray-200 dark:border-gray-800 p-3">
+      <DigestHistory
+        :digests="digests"
+        :selected="selected"
         :running="running"
-        @run-now="handleRunNow"
+        @update:selected="selected = $event"
+        @delete="requestDelete"
       />
-
-      <div class="grid grid-cols-12 gap-6">
-        <div class="col-span-3">
-          <DigestHistory
-            :digests="digests"
-            :selected="selected"
-            :running="running"
-            @update:selected="selected = $event"
-            @delete="requestDelete"
-          />
-        </div>
-
-        <div class="col-span-9">
-          <DigestContentPanel
-            :running="running"
-            :steps="steps"
-            :loading-digest="loadingDigest"
-            :digest-content="digestContent"
-          />
-        </div>
-      </div>
-    </UContainer>
+    </div>
+    <div class="flex-1 overflow-y-auto p-6">
+      <DigestContentPanel
+        :running="running"
+        :steps="steps"
+        :loading-digest="loadingDigest"
+        :digest-content="digestContent"
+      />
+    </div>
   </div>
 </template>

@@ -13,7 +13,7 @@ const PHASE_TO_STEP: Record<string, DigestStep['id']> = {
 
 export function useDigestRun(options: { onComplete: () => Promise<void> }) {
   const toast = useToast()
-  const running = ref(false)
+  const running = useState('digestRunning', () => false)
   const steps = ref<DigestStep[]>([])
   let es: EventSource | null = null
 

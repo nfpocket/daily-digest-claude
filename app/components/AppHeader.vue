@@ -22,9 +22,13 @@ function isRunnable(entry: ScheduleEntry) {
 </script>
 
 <template>
-  <div class="flex items-center justify-between mb-6">
-    <h1 class="text-2xl font-bold">Daily Digest</h1>
-    <div class="flex gap-2 items-center">
+  <header class="h-16 flex-shrink-0 flex items-center justify-between px-6 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 z-10">
+    <div class="flex items-center gap-2">
+      <UIcon name="i-heroicons-newspaper" class="w-5 h-5 text-primary-500" />
+      <span class="font-bold text-lg">Daily Digest</span>
+    </div>
+
+    <div class="flex items-center gap-2">
       <UTooltip
         v-if="!authOk"
         text="Claude CLI not found — make sure 'claude' is in your PATH"
@@ -47,6 +51,7 @@ function isRunnable(entry: ScheduleEntry) {
         <UButton
           icon="i-heroicons-play"
           variant="outline"
+          size="sm"
           :loading="running"
           :disabled="running"
         >
@@ -58,7 +63,10 @@ function isRunnable(entry: ScheduleEntry) {
         to="/settings"
         variant="ghost"
         icon="i-heroicons-cog-6-tooth"
+        size="sm"
       />
+
+      <UColorModeButton size="sm" />
     </div>
-  </div>
+  </header>
 </template>
