@@ -7,8 +7,7 @@ const totalSteps = 3
 // Step 1 — Slack
 const slackToken = ref('')
 const slackUserId = ref('')
-const slackLoading = ref(false)
-const slackError = ref('')
+const slackOp = useAsyncOp()
 const availableChannels = ref<{ id: string; name: string }[]>([])
 const selectedChannels = ref<string[]>([])
 const includeDMs = ref(true)
@@ -18,12 +17,10 @@ const includeMentions = ref(true)
 const scheduleName = ref('Morning Digest')
 const scheduleTime = ref('07:00')
 const scheduleDays = ref([1, 2, 3, 4, 5])
-const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // Step 3 — LaunchAgent
-const launchLoading = ref(false)
+const launchOp = useAsyncOp()
 const launchDone = ref(false)
-const launchError = ref('')
 
 const slackManifest = JSON.stringify(
   {
@@ -62,19 +59,13 @@ async function copyManifest() {
 }
 
 async function loadSlackChannels() {
-  slackLoading.value = true
-  slackError.value = ''
-  try {
+  await slackOp.run(async () => {
     await $fetch('/api/auth', {
       method: 'POST',
       body: { slackToken: slackToken.value, slackUserId: slackUserId.value },
     })
-    availableChannels.value = await $fetch<{ id: string; name: string }[]>('/api/auth/slack-channels' as string)
-  } catch (e: any) {
-    slackError.value = e.message ?? 'Could not connect to Slack'
-  } finally {
-    slackLoading.value = false
-  }
+    availableChannels.value = await $fetch<{ id: string; name: string }[]>('/api/auth/slack-channels')
+  })
 }
 
 async function submitSchedule() {
@@ -101,23 +92,12 @@ async function submitSchedule() {
   step.value = 3
 }
 
-function toggleDay(day: number) {
-  const idx = scheduleDays.value.indexOf(day)
-  if (idx >= 0) scheduleDays.value.splice(idx, 1)
-  else scheduleDays.value.push(day)
-}
 
 async function installLaunchAgent() {
-  launchLoading.value = true
-  launchError.value = ''
-  try {
+  await launchOp.run(async () => {
     await $fetch('/api/launchagent', { method: 'POST', body: { action: 'install' } })
     launchDone.value = true
-  } catch (e: any) {
-    launchError.value = e.message ?? 'Failed to install LaunchAgent'
-  } finally {
-    launchLoading.value = false
-  }
+  })
 }
 </script>
 
@@ -184,10 +164,10 @@ async function installLaunchAgent() {
         <UFormField label="Your Slack User ID" hint="Found in your Slack profile (e.g. U01ABC1234)">
           <UInput v-model="slackUserId" placeholder="U01ABC1234" class="w-full" />
         </UFormField>
-        <UButton :loading="slackLoading" :disabled="!slackToken || !slackUserId" variant="outline" @click="loadSlackChannels">
+        <UButton :loading="slackOp.loading" :disabled="!slackToken || !slackUserId" variant="outline" @click="loadSlackChannels">
           Connect &amp; load channels
         </UButton>
-        <UAlert v-if="slackError" color="error" :description="slackError" />
+        <UAlert v-if="slackOp.error" color="error" :description="slackOp.error" />
 
         <div v-if="availableChannels.length > 0" class="space-y-3">
           <UFormField label="Channels to include">
@@ -217,17 +197,7 @@ async function installLaunchAgent() {
           <UInput v-model="scheduleTime" type="time" class="w-full" />
         </UFormField>
         <UFormField label="Days">
-          <div class="flex gap-2 flex-wrap">
-            <UButton
-              v-for="(label, i) in dayLabels"
-              :key="i"
-              :variant="scheduleDays.includes(i) ? 'solid' : 'outline'"
-              size="xs"
-              @click="toggleDay(i)"
-            >
-              {{ label }}
-            </UButton>
-          </div>
+          <DayPicker v-model="scheduleDays" />
         </UFormField>
         <UButton :disabled="scheduleDays.length === 0" block @click="submitSchedule">
           Continue
@@ -243,8 +213,8 @@ async function installLaunchAgent() {
           <p class="text-sm">
             This will install a macOS LaunchAgent that starts the app automatically on login.
           </p>
-          <UAlert v-if="launchError" color="error" :description="launchError" />
-          <UButton :loading="launchLoading" block @click="installLaunchAgent">
+          <UAlert v-if="launchOp.error" color="error" :description="launchOp.error" />
+          <UButton :loading="launchOp.loading" block @click="installLaunchAgent">
             Install background service
           </UButton>
           <UButton variant="ghost" block @click="navigateTo('/')">

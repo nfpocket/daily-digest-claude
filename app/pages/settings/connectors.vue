@@ -3,16 +3,13 @@ const { data: connectorsData, refresh } = await useFetch('/api/connectors')
 const connectors = computed(() => connectorsData.value ?? [])
 
 const description = ref('')
-const building = ref(false)
-const buildError = ref('')
+const buildOp = useAsyncOp()
 const buildSuccess = ref(false)
 
 async function buildConnector() {
   if (!description.value.trim()) return
-  building.value = true
-  buildError.value = ''
   buildSuccess.value = false
-  try {
+  await buildOp.run(async () => {
     await $fetch('/api/connectors/build', {
       method: 'POST',
       body: { description: description.value },
@@ -20,11 +17,7 @@ async function buildConnector() {
     buildSuccess.value = true
     description.value = ''
     await refresh()
-  } catch (e: any) {
-    buildError.value = e.message ?? 'Build failed'
-  } finally {
-    building.value = false
-  }
+  })
 }
 </script>
 
@@ -85,12 +78,12 @@ async function buildConnector() {
                     v-model="description"
                     :rows="4"
                     placeholder="e.g. Fetch open GitHub Issues assigned to me from the repository owner/repo"
-                    :disabled="building"
+                    :disabled="buildOp.loading"
                     class="w-full"
                   />
                 </UFormField>
 
-                <div v-if="building" class="flex items-center gap-3 text-sm text-gray-500">
+                <div v-if="buildOp.loading" class="flex items-center gap-3 text-sm text-gray-500">
                   <UIcon name="i-heroicons-arrow-path" class="animate-spin" />
                   Claude is building your connector — this may take a minute…
                 </div>
@@ -103,14 +96,14 @@ async function buildConnector() {
                 />
 
                 <UAlert
-                  v-if="buildError"
+                  v-if="buildOp.error"
                   color="error"
                   icon="i-heroicons-exclamation-triangle"
-                  :description="buildError"
+                  :description="buildOp.error"
                 />
 
                 <UButton
-                  :loading="building"
+                  :loading="buildOp.loading"
                   :disabled="!description.trim()"
                   icon="i-heroicons-sparkles"
                   @click="buildConnector"
