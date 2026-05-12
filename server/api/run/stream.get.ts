@@ -9,7 +9,7 @@ export default defineEventHandler(async (event) => {
 
   runDigest(entryId, (e) => {
     eventStream.push(JSON.stringify(e))
-  })
+  }, "manual")
     .then((filepath) => {
       eventStream.push(JSON.stringify({ type: 'done', filepath }))
       eventStream.close()

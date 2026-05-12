@@ -87,6 +87,10 @@ const { data: config } = await useFetch("/api/config");
 const schedules = computed(() => config.value?.config?.schedules ?? []);
 const authOk = computed(() => config.value?.authOk ?? false);
 
+function isRunnable(entry: any) {
+  return entry.sources.length > 0 || !!entry.prompt;
+}
+
 function runNow(entryId: string) {
   if (!authOk.value) {
     toast.add({
@@ -201,7 +205,7 @@ function renderMarkdown(md: string): string {
 
           <UDropdownMenu
             v-if="schedules.length > 0"
-            :items="schedules.map((s) => ({ label: s.name, onSelect: () => runNow(s.id) }))"
+            :items="schedules.map((s) => ({ label: s.name, onSelect: isRunnable(s) ? () => runNow(s.id) : undefined, disabled: !isRunnable(s) }))"
           >
             <UButton
               icon="i-heroicons-play"
@@ -239,7 +243,14 @@ function renderMarkdown(md: string): string {
                 "
                 @click="selected = d.filename"
               >
-                {{ d.date }}
+                <span v-if="d.scheduleName" class="flex items-center gap-1.5">
+                  <UIcon
+                    :name="d.trigger === 'scheduled' ? 'i-heroicons-clock' : 'i-heroicons-play'"
+                    class="flex-shrink-0 w-3 h-3 opacity-60"
+                  />
+                  <span class="truncate">{{ d.scheduleName }}</span>
+                </span>
+                <span class="block text-xs opacity-50 mt-0.5">{{ d.date }}</span>
               </button>
               <UButton
                 icon="i-heroicons-trash"

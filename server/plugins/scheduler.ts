@@ -16,8 +16,12 @@ export default defineNitroPlugin(async () => {
 
       for (const entry of config.schedules) {
         if (entry.days.includes(currentDay) && entry.time === currentTime) {
+          if (entry.sources.length === 0 && !entry.prompt) {
+            console.log(`[scheduler] Skipping "${entry.name}": no sources and no prompt`)
+            continue
+          }
           console.log(`[scheduler] Running digest: ${entry.name}`)
-          runDigest(entry.id).catch((err) =>
+          runDigest(entry.id, undefined, "scheduled").catch((err) =>
             console.error(`[scheduler] Digest failed for ${entry.id}:`, err),
           )
         }

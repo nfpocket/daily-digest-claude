@@ -93,6 +93,10 @@ async function runNow(id: string) {
   }
 }
 
+function isRunnable(entry: any) {
+  return entry.sources.length > 0 || !!entry.prompt
+}
+
 function runNowItems(entries: any[]) {
   return entries.map((s) => ({ label: `Run: ${s.name}`, onSelect: () => runNow(s.id) }))
 }
@@ -145,19 +149,24 @@ function runNowItems(entries: any[]) {
                   <UBadge v-for="src in entry.sources" :key="src.connector" variant="soft" size="xs">
                     {{ src.connector }}
                   </UBadge>
+                  <UBadge v-if="!isRunnable(entry)" color="warning" variant="soft" size="xs" icon="i-heroicons-exclamation-triangle">
+                    No sources or prompt
+                  </UBadge>
                 </div>
               </div>
               <div class="flex gap-2">
-                <UDropdownMenu :items="[{ label: `Run: ${entry.name}`, onSelect: () => runNow(entry.id) }]">
+                <UTooltip :text="isRunnable(entry) ? '' : 'Add sources or a custom prompt to run'">
                   <UButton
                     size="xs"
                     variant="outline"
                     icon="i-heroicons-play"
                     :loading="runningId === entry.id"
+                    :disabled="!isRunnable(entry)"
+                    @click="runNow(entry.id)"
                   >
                     Run now
                   </UButton>
-                </UDropdownMenu>
+                </UTooltip>
                 <UButton size="xs" variant="ghost" icon="i-heroicons-pencil" @click="editSchedule(entry)" />
                 <UButton size="xs" variant="ghost" color="error" icon="i-heroicons-trash" @click="deleteSchedule(entry.id)" />
               </div>
