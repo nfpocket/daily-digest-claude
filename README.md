@@ -125,6 +125,16 @@ Open the bot from Slack's AI panel (✦ sparkle button or search the app under *
 
 The bot only responds to the user in `SLACK_USER_ID`. Scheduled digests also send a completion notification to that user via the bot.
 
+### 2. Editing Slack source config
+
+After initial setup, you can change which channels, DMs, and mentions are included per schedule without editing files directly:
+
+```
+Settings → [schedule] → pencil icon on the Slack badge
+```
+
+This opens **Settings → Slack** where you can update channel selection and toggles, then save.
+
 ### 3. Schedule
 
 Name your digest, pick days (Mon–Fri by default) and a time (e.g. `07:00`). You can create multiple schedule entries with different sources.
@@ -254,10 +264,12 @@ server/
   plugins/
     env.ts           # Loads .digest/.env into process.env at startup
     scheduler.ts     # node-cron: fires digest runs on schedule
+    slack-bot.ts     # Slack bot (Socket Mode) — run/status/list/help via DM
 app/
   pages/
     index.vue        # Digest viewer (history sidebar + content)
     settings/        # Schedule + connector management
+      slack.vue      # Edit per-schedule Slack source config (channels, DMs, mentions)
     setup/           # Onboarding wizard
   composables/
     useDigestRun.ts  # EventSource for real-time digest progress
