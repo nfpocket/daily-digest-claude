@@ -92,10 +92,18 @@ function isRunnable(entry: any) {
             <p class="text-sm text-gray-500 mt-0.5">
               {{ entry.days.map((d: number) => dayLabels[d]).join(', ') }} at {{ entry.time }}
             </p>
-            <div class="flex gap-2 mt-2 flex-wrap">
-              <UBadge v-for="src in entry.sources" :key="src.connector" variant="soft" size="xs">
-                {{ src.connector }}
-              </UBadge>
+            <div class="flex gap-2 mt-2 flex-wrap items-center">
+              <template v-for="src in entry.sources" :key="src.connector">
+                <UBadge variant="soft" size="xs">{{ src.connector }}</UBadge>
+                <UButton
+                  v-if="src.connector === 'slack'"
+                  :to="`/settings/slack?schedule=${entry.id}`"
+                  size="xs"
+                  variant="ghost"
+                  icon="i-heroicons-pencil-square"
+                  class="-ml-1"
+                />
+              </template>
               <UBadge v-if="!isRunnable(entry)" color="warning" variant="soft" size="xs" icon="i-heroicons-exclamation-triangle">
                 No sources or prompt
               </UBadge>

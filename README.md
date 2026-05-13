@@ -27,9 +27,103 @@ Open [http://localhost:3005](http://localhost:3005) — you'll be walked through
 
 ### 1. Slack
 
-You need a Slack app with a **User OAuth token** (`xoxp-...`). The setup wizard gives you an app manifest to paste into [api.slack.com/apps](https://api.slack.com/apps) — create the app, install it to your workspace, copy the token.
+Two things are needed: a **User OAuth token** so the connector can read your messages, and a **Bot token** so the Slack bot can respond to you in the AI assistant panel.
 
-You'll also need your **User ID** (found in your Slack profile → three-dot menu → Copy member ID).
+Both come from a single Slack app. Create it with the manifest below (~5 minutes):
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From an app manifest**
+2. Pick your workspace, click **Next**
+3. Switch to the **JSON** tab, paste the manifest below, click **Next** → **Create**
+4. Under **Features → Agents & AI Apps** → toggle **on** (this enables the AI assistant panel and the typing indicator — must be done manually, not via manifest)
+5. Under **Settings → Socket Mode** → toggle **on** → click **Generate Token**, name it (e.g. `socket`), click **Generate** → copy the **App-Level Token** (`xapp-...`)
+6. Under **OAuth & Permissions** → **Install to Workspace** → approve → copy the **User OAuth Token** (`xoxp-...`) and the **Bot User OAuth Token** (`xoxb-...`)
+7. Find your **User ID**: click your avatar in Slack → **Profile** → **⋯** → **Copy member ID** (e.g. `U01ABC1234`)
+
+Add all four values to `.digest/.env`:
+
+```
+SLACK_TOKEN=xoxp-...
+SLACK_USER_ID=U01ABC1234
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+```
+
+<details>
+<summary><strong>App manifest (JSON)</strong></summary>
+
+```json
+{
+  "display_information": {
+    "name": "Daily Digest",
+    "description": "Your personal AI digest bot"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Daily Digest",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "search:read",
+        "users:read"
+      ],
+      "bot": [
+        "assistant:write",
+        "chat:write",
+        "im:history",
+        "im:read",
+        "im:write"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "assistant_thread_context_changed",
+        "assistant_thread_started",
+        "message.im"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
+```
+
+</details>
+
+#### Bot scope reference
+
+| Scope | Why |
+|-------|-----|
+| `assistant:write` | Typing indicator (`setStatus`) in the AI assistant panel |
+| `chat:write` | Post messages and digest content |
+| `im:history` | Read DMs sent to the bot |
+| `im:read` | Open DM conversations |
+| `im:write` | Send proactive DMs (completion notifications) |
+
+#### Using the bot
+
+Open the bot from Slack's AI panel (✦ sparkle button or search the app under **Apps**). It responds to these commands:
+
+| Command | What it does |
+|---------|-------------|
+| `run [schedule]` | Run a digest now and post the full content |
+| `status` | Show all schedules and their next run times |
+| `list` | Show the last 5 completed digests |
+| `help` | Show available commands |
+
+The bot only responds to the user in `SLACK_USER_ID`. Scheduled digests also send a completion notification to that user via the bot.
 
 ### 3. Schedule
 
@@ -128,7 +222,7 @@ Everything in `.digest/` is gitignored and local to your machine:
 | Path | Contents |
 |------|----------|
 | `.digest/config.md` | Schedule entries and source configs (YAML frontmatter) |
-| `.digest/.env` | Auth tokens (`SLACK_TOKEN`, `SLACK_USER_ID`) |
+| `.digest/.env` | Auth tokens (`SLACK_TOKEN`, `SLACK_USER_ID`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`) |
 | `.digest/digests/` | Generated digests — one `.md` file per run |
 | `.digest/app.log` | Background service stdout |
 | `.digest/app.error.log` | Background service stderr |

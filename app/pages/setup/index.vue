@@ -24,7 +24,16 @@ const launchDone = ref(false)
 
 const slackManifest = JSON.stringify(
   {
-    display_information: { name: 'Daily Digest' },
+    display_information: {
+      name: 'Daily Digest',
+      description: 'Your personal AI digest bot',
+    },
+    features: {
+      bot_user: {
+        display_name: 'Daily Digest',
+        always_online: true,
+      },
+    },
     oauth_config: {
       scopes: {
         user: [
@@ -37,14 +46,27 @@ const slackManifest = JSON.stringify(
           'search:read',
           'users:read',
         ],
+        bot: [
+          'assistant:write',
+          'chat:write',
+          'im:history',
+          'im:read',
+          'im:write',
+        ],
       },
-      pkce_enabled: false,
     },
     settings: {
+      event_subscriptions: {
+        bot_events: [
+          'app_mention',
+          'assistant_thread_context_changed',
+          'assistant_thread_started',
+          'message.im',
+        ],
+      },
       org_deploy_enabled: false,
-      socket_mode_enabled: false,
+      socket_mode_enabled: true,
       token_rotation_enabled: false,
-      is_mcp_enabled: false,
     },
   },
   null,

@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
+    "@chat-adapter/slack": "^4.28.1",
     "@nuxt/ui": "^4.7.1",
     "@slack/web-api": "^7.8.0",
+    "chat": "^4.28.1",
     "gray-matter": "^4.0.3",
     "node-cron": "^3.0.3",
     "node-notifier": "^10.0.1",

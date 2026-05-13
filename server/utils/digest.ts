@@ -26,9 +26,7 @@ function buildPrompt(entry: ScheduleEntry, sourceBlocks: string, customPrompt: s
     day: "numeric",
   });
 
-  const base =
-    customPrompt ??
-    `Generate a structured digest in this exact format:
+  const defaultPrompt = `Generate a structured digest in this exact format:
 
 # Digest — ${date}
 
@@ -41,6 +39,10 @@ function buildPrompt(entry: ScheduleEntry, sourceBlocks: string, customPrompt: s
 Be concise. Focus on signal over noise. Skip pleasantries and filler messages.
 When source items include [(source)](url) links, preserve them in your bullet points. For each bullet include all relevant source links as [(1)](url) [(2)](url) etc.`;
 
+  const base = customPrompt
+    ? `${defaultPrompt}\n\nAdditional instructions:\n${customPrompt}`
+    : defaultPrompt;
+
   const dataSection = sourceBlocks.trim()
     ? `\n\n---\nRAW DATA:\n${sourceBlocks}\n---`
     : "";
@@ -52,6 +54,7 @@ export async function runDigest(
   entryId: string,
   onEvent?: (event: DigestEvent) => void,
   trigger: DigestTrigger = "manual",
+  options?: { skipNotifications?: boolean },
 ): Promise<string> {
   const config = await readConfig();
   const entry = config.schedules.find((s) => s.id === entryId);
@@ -118,16 +121,18 @@ export async function runDigest(
   if (!existsSync(dir)) await mkdir(dir, { recursive: true });
   const filename = `${formatTimestamp(new Date())}.md`;
   const filepath = join(dir, filename);
-  const fileContent = matter.stringify(digestContent, {
+  const fileContent = matter.stringify("", {
     scheduleId: entry.id,
     scheduleName: entry.name,
     trigger,
-  });
+  }) + digestContent;
   await writeFile(filepath, fileContent, "utf-8");
 
-  const title = `Daily Digest — ${entry.name}`;
-  const firstLines = digestContent.split("\n").slice(0, 5).join("\n");
-  sendNotifications(title, firstLines).catch((err) => console.error("[digest] notification error:", err));
+  if (!options?.skipNotifications) {
+    const title = `Daily Digest — ${entry.name}`;
+    const firstLines = digestContent.split("\n").slice(0, 5).join("\n");
+    sendNotifications(title, firstLines).catch((err) => console.error("[digest] notification error:", err));
+  }
 
   return filepath;
 }
@@ -142,7 +147,12 @@ async function getLastDigestTime(entryId: string): Promise<Date> {
 
   for (const filename of md) {
     const raw = await readFile(join(dir, filename), "utf-8");
-    const { data } = matter(raw);
+    let data: Record<string, unknown>;
+    try {
+      data = matter(raw).data;
+    } catch {
+      continue;
+    }
     if (data.scheduleId !== entryId) continue;
     const parts = filename.replace(".md", "").split("-").map(Number);
     const [year, month, day, hour, min] = parts as [number, number, number, number, number];
