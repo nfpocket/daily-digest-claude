@@ -11,11 +11,10 @@ const connectors = computed(() => connectorsData.value ?? [])
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const overlay = useOverlay()
-const scheduleModal = overlay.create(ScheduleEditModal, { destroyOnClose: true })
-const deleteModal = overlay.create(ConfirmModal, { destroyOnClose: true })
 
 async function openScheduleModal(entry?: any) {
-  const instance = scheduleModal.open({
+  const modal = overlay.create(ScheduleEditModal, { destroyOnClose: true })
+  const instance = modal.open({
     entry,
     connectors: connectors.value,
     onSave: async (form: any) => {
@@ -31,7 +30,8 @@ async function openScheduleModal(entry?: any) {
 }
 
 async function requestDeleteSchedule(id: string, name: string) {
-  const instance = deleteModal.open({
+  const modal = overlay.create(ConfirmModal, { destroyOnClose: true })
+  const instance = modal.open({
     title: 'Delete schedule',
     description: `Delete "${name}"? This cannot be undone.`,
     confirmLabel: 'Delete',
@@ -52,8 +52,25 @@ async function requestDeleteSchedule(id: string, name: string) {
   await instance.result
 }
 
-const runningId = ref<string | null>(null)
+async function toggleSchedule(entry: any) {
+  const prev = data.value
+  const newSchedules = config.value.schedules.map((s: any) =>
+    s.id === entry.id ? { ...s, disabled: !s.disabled } : s
+  )
+  data.value = { ...data.value!, config: { ...config.value, schedules: newSchedules } }
+  try {
+    await $fetch('/api/config', {
+      method: 'POST',
+      body: { config: { ...config.value, schedules: newSchedules } },
+    })
+  } catch (e: any) {
+    data.value = prev
+    toast.add({ title: 'Failed to update schedule', description: e?.data?.message ?? e?.message, color: 'error' })
+  }
+}
+
 const toast = useToast()
+const runningId = ref<string | null>(null)
 
 async function runNow(id: string) {
   runningId.value = id
@@ -85,7 +102,7 @@ function isRunnable(entry: any) {
     </template>
 
     <template v-else>
-      <UCard v-for="entry in schedules" :key="entry.id">
+      <UCard v-for="entry in schedules" :key="entry.id" :class="entry.disabled ? 'opacity-50' : ''">
         <div class="flex items-start justify-between">
           <div>
             <p class="font-medium">{{ entry.name }}</p>
@@ -109,7 +126,8 @@ function isRunnable(entry: any) {
               </UBadge>
             </div>
           </div>
-          <div class="flex gap-2">
+          <div class="flex gap-2 items-center">
+            <USwitch :model-value="!entry.disabled" @update:model-value="toggleSchedule(entry)" />
             <UTooltip :text="isRunnable(entry) ? '' : 'Add sources or a custom prompt to run'">
               <UButton
                 size="xs"

@@ -16,7 +16,7 @@ const emit = defineEmits<{ close: [saved: boolean] }>()
 
 const form = ref(
   props.entry
-    ? { ...props.entry, sources: [...props.entry.sources] }
+    ? { ...props.entry, sources: props.entry.sources.map(s => ({ ...s, channels: [...(s.channels ?? [])] })) }
     : {
         id: crypto.randomUUID(),
         name: '',

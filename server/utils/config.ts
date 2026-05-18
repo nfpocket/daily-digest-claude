@@ -21,7 +21,8 @@ const ScheduleEntrySchema = z.object({
   days: z.array(z.number().min(0).max(6)),
   time: z.string().regex(/^\d{2}:\d{2}$/),
   sources: z.array(SourceConfigSchema).default([]),
-  prompt: z.string().nullable().default(null),
+  prompt: z.string().nullable().default(null).transform(v => v === '' ? null : v),
+  disabled: z.boolean().default(false),
 })
 
 export type ScheduleEntry = z.infer<typeof ScheduleEntrySchema>

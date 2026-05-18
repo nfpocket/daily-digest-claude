@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { marked } from 'marked'
 import type { DigestStep } from '~/composables/useDigestRun'
 
 defineProps<{
@@ -9,17 +10,7 @@ defineProps<{
 }>()
 
 function renderMarkdown(md: string): string {
-  return md
-    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-0">$1</h1>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-lg font-semibold mt-6 mb-2">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 class="font-medium mt-4 mb-1">$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary-600 dark:text-primary-400 hover:underline">$1</a>',
-    )
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-    .replace(/\n/g, '<br>')
+  return marked(md) as string
 }
 </script>
 
